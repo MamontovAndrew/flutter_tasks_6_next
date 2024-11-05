@@ -18,7 +18,7 @@ ___
 | 4 | https://github.com/MamontovAndrew/flutter4 |
 | 5 | https://github.com/MamontovAndrew/flutter5 |
 | 6 | [Ссылка на ветку](https://github.com/MamontovAndrew/flutter_tasks_6_next/tree/task6)|
-| 7 | |
+| 7 | [Ссылка на ветку](https://github.com/MamontovAndrew/flutter_tasks_6_next/tree/task7)|
 | 8 | |
 | 9 | |
 | 10 | |
