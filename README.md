@@ -20,7 +20,7 @@ ___
 | 6 | [Ссылка на ветку](https://github.com/MamontovAndrew/flutter_tasks_6_next/tree/task6)|
 | 7 | [Ссылка на ветку](https://github.com/MamontovAndrew/flutter_tasks_6_next/tree/task7)|
 | 8 | [Ссылка на ветку](https://github.com/MamontovAndrew/flutter_tasks_6_next/tree/task8)|
-| 9 | |
+| 9 | [Ссылка на ветку](https://github.com/MamontovAndrew/flutter_tasks_6_next/tree/task9)|
 | 10 | |
 | 11 | |
 | 12 | |
