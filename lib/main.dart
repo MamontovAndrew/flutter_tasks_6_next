@@ -1,0 +1,294 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import '../screens/home_screen.dart';
+import '../screens/favorites_screen.dart';
+import '../screens/profile_screen.dart';
+import '../screens/cart_screen.dart';
+import '../screens/auth_page.dart';
+import '../screens/orders_screen.dart';
+import '../screens/admin_chats_list_screen.dart';
+import '../screens/support_chat_screen.dart';
+import '../styles/app_styles.dart';
+import '../models/product.dart';
+import '../models/cart_item.dart';
+import '../models/user_profile.dart';
+import '../services/api_service.dart';
+import '../services/user_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await dotenv.load(fileName: ".env");
+
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+  );
+
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Flutter Shop',
+      theme: AppStyles.mainTheme.copyWith(
+        bottomNavigationBarTheme: BottomNavigationBarThemeData(
+          backgroundColor: Colors.white,
+          selectedItemColor: Colors.blue,
+          unselectedItemColor: Colors.grey,
+        ),
+      ),
+      home: AuthWrapper(),
+    );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final supabase = Supabase.instance.client;
+    final session = supabase.auth.currentSession;
+
+    if (session == null) {
+      return AuthPage();
+    } else {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) {
+        return AuthPage();
+      }
+      return MainNavigation();
+    }
+  }
+}
+
+class MainNavigation extends StatefulWidget {
+  @override
+  _MainNavigationState createState() => _MainNavigationState();
+}
+
+class _MainNavigationState extends State<MainNavigation> {
+  int _selectedIndex = 0;
+
+  List<Product> favoriteList = [];
+  List<CartItem> cartItems = [];
+  UserProfile userProfile = UserProfile();
+  ApiService apiService = ApiService();
+  UserService userService = UserService();
+
+  bool _isAdmin = false;
+  bool _isLoading = true;
+  String? adminId;
+
+  @override
+  void initState() {
+    super.initState();
+    checkAuth();
+    loadUserProfileFromLocal();
+    loadFavorites();
+    loadCart();
+    _checkAdminStatus();
+  }
+
+  void checkAuth() {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => AuthPage()),
+        );
+      });
+    }
+  }
+
+  void loadFavorites() async {
+    try {
+      List<Product> favorites = await apiService.getFavorites();
+      setState(() {
+        favoriteList = favorites;
+      });
+    } catch (e) {
+      print('Ошибка загрузки избранных товаров: $e');
+    }
+  }
+
+  void loadCart() async {
+    try {
+      List<CartItem> cart = await apiService.getCart();
+      setState(() {
+        cartItems = cart;
+      });
+    } catch (e) {
+      print('Ошибка загрузки корзины: $e');
+    }
+  }
+
+  Future<void> loadUserProfileFromLocal() async {
+    try {
+      final localProfile = await apiService.getUserProfile();
+      setState(() {
+        userProfile = localProfile;
+      });
+    } catch (e) {
+      print('Ошибка загрузки профиля из локальной БД: $e');
+    }
+  }
+
+  void addToCart(Product product) async {
+    try {
+      await apiService.addToCart(product.id!);
+      loadCart();
+    } catch (e) {
+      print('Ошибка при добавлении в корзину: $e');
+    }
+  }
+
+  void updateCartItemQuantity(Product product, int quantity) async {
+    try {
+      if (quantity <= 0) {
+        await apiService.removeFromCart(product.id!);
+      } else {
+        await apiService.updateCartItem(product.id!, quantity);
+      }
+      setState(() {
+        cartItems.removeWhere((item) => item.product.id == product.id && quantity <= 0);
+      });
+      loadCart();
+    } catch (e) {
+      final errorMessage = e.toString();
+      if (errorMessage.contains('400') || errorMessage.contains('Not enough stock')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Недостаточно товара на складе!')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+    }
+  }
+
+  void removeFromCart(Product product) async {
+    try {
+      await apiService.removeFromCart(product.id!);
+      setState(() {
+        cartItems.removeWhere((item) => item.product.id == product.id);
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка при удалении товара: $e')),
+      );
+    }
+  }
+
+  void toggleFavorite(Product product) async {
+    try {
+      if (favoriteList.contains(product)) {
+        await apiService.removeFavorite(product.id!);
+      } else {
+        await apiService.addFavorite(product.id!);
+      }
+      loadFavorites();
+    } catch (e) {
+      print('Ошибка при переключении избранного: $e');
+    }
+  }
+
+  Future<void> _checkAdminStatus() async {
+    try {
+      bool isAdmin = await userService.isAdmin();
+      if (isAdmin) {
+        setState(() {
+          _isAdmin = true;
+          _isLoading = false;
+        });
+      } else {
+        String fetchedAdminId = await userService.getAdminId();
+        setState(() {
+          _isAdmin = false;
+          adminId = fetchedAdminId;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Ошибка при проверке статуса администратора: $e');
+      setState(() {
+        _isAdmin = false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      // Показываем индикатор загрузки, пока определяем роль пользователя
+      return Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Определяем список экранов в зависимости от роли пользователя
+    List<Widget> _screens = [
+      HomeScreen(
+        favoriteList: favoriteList,
+        onFavoriteToggle: toggleFavorite,
+        cartItems: cartItems,
+        addToCart: addToCart,
+        updateCartItemQuantity: updateCartItemQuantity,
+      ),
+      FavoritesScreen(
+        favoriteList: favoriteList,
+        onFavoriteToggle: toggleFavorite,
+        addToCart: addToCart,
+        updateCartItemQuantity: updateCartItemQuantity,
+        cartItems: cartItems,
+      ),
+      ProfileScreen(
+        userProfile: userProfile,
+      ),
+      CartScreen(
+        cartItems: cartItems,
+        updateCartItemQuantity: updateCartItemQuantity,
+        removeFromCart: removeFromCart,
+      ),
+      OrdersScreen(),
+      _isAdmin
+          ? AdminChatsListScreen() // Если админ, показываем список чатов
+          : (adminId != null
+          ? SupportChatScreen(companionId: adminId!) // Если пользователь, показываем чат с админом
+          : Center(child: Text('Admin ID not found'))),
+    ];
+
+    return Scaffold(
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        selectedItemColor: Colors.blue,
+        unselectedItemColor: Colors.grey,
+        backgroundColor: Colors.white,
+        type: BottomNavigationBarType.fixed, // Для более 3 элементов
+        items: [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Главная'),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Избранное'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Профиль'),
+          BottomNavigationBarItem(icon: Icon(Icons.shopping_cart), label: 'Корзина'),
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Заказы'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Чаты'), // Новый элемент
+        ],
+      ),
+    );
+  }
+}
